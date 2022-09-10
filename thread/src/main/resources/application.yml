@@ -1,6 +1,6 @@
 server:
   tomcat:
-    accept-count: 1
-    max-connections: 2
+    accept-count: 5
+    max-connections: 5
     threads:
-      max: 2
+      max: 1

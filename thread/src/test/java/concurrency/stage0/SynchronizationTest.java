@@ -26,7 +26,7 @@ class SynchronizationTest {
         var synchronizedMethods = new SynchronizedMethods();
 
         IntStream.range(0, 1000)
-                .forEach(count -> executorService.submit(synchronizedMethods::calculate));
+                .forEach(count -> executorService.submit(synchronizedMethods::calculate)); // 경쟁 조건(race condition) 발생
         executorService.awaitTermination(500, TimeUnit.MILLISECONDS);
 
         assertThat(synchronizedMethods.getSum()).isEqualTo(1000);
@@ -34,9 +34,9 @@ class SynchronizationTest {
 
     private static final class SynchronizedMethods {
 
-        private int sum = 0;
+        private int sum = 0; // 변경 가능한(mutable) 공유 데이터
 
-        public synchronized void calculate() {
+        public synchronized void calculate() { // 하나의 스레드만 접근하도록 제한
             setSum(getSum() + 1);
         }
 

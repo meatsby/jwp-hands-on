@@ -84,51 +84,42 @@ class Stage1Test {
      */
     @Test
     void noneRepeatable() throws SQLException {
-        setUp(createH2DataSource());
+        for (IsolationLevel isolationLevel : IsolationLevel.values()) {
+            setUp(createH2DataSource());
 
-        // 테스트 전에 필요한 데이터를 추가한다.
-        userDao.insert(dataSource.getConnection(), new User("gugu", "password", "hkkang@woowahan.com"));
+            // 테스트 전에 필요한 데이터를 추가한다.
+            User gugu = new User("gugu", "password", "hkkang@woowahan.com");
+            userDao.insert(dataSource.getConnection(), gugu);
 
-        // db에 새로운 연결(사용자A)을 받아와서
-        final var connection = dataSource.getConnection();
+            // 새로운 연결(사용자A)을 받아온 뒤, 트랜잭션을 시작한다.
+            Connection connection = dataSource.getConnection();
+            connection.setAutoCommit(false);
 
-        // 트랜잭션을 시작한다.
-        connection.setAutoCommit(false);
+            connection.setTransactionIsolation(isolationLevel.getLevel());
 
-        // 적절한 격리 레벨을 찾는다.
-        final int isolationLevel = Connection.TRANSACTION_NONE;
+            // 사용자A 가 gugu 객체를 조회했다.
+            User user = userDao.findByAccount(connection, "gugu");
+            log.info("user : {}", user);
 
-        // 트랜잭션 격리 레벨을 설정한다.
-        connection.setTransactionIsolation(isolationLevel);
+            new Thread(RunnableWrapper.accept(() -> {
+                // 사용자B 가 새로 연결하여
+                Connection subConnection = dataSource.getConnection();
 
-        // 사용자A가 gugu 객체를 조회했다.
-        final var user = userDao.findByAccount(connection, "gugu");
-        log.info("user : {}", user);
+                // 사용자A 가 조회한 gugu 객체를 사용자B 가 다시 조회한 뒤 비밀번호를 변경했다.(subConnection은 auto commit 상태)
+                User anotherUser = userDao.findByAccount(subConnection, "gugu");
+                anotherUser.changePassword("qqqq");
+                userDao.update(subConnection, anotherUser);
+            })).start();
+            sleep(0.1);
 
-        new Thread(RunnableWrapper.accept(() -> {
-            // 사용자B가 새로 연결하여
-            final var subConnection = dataSource.getConnection();
+            // 사용자B 가 패스워드를 변경하고 아직 커밋하지 않은 상태에서 사용자A 가 다시 gugu 객체를 조회했다.
+            User actual = userDao.findByAccount(connection, "gugu");
+            log.info("isolation level : {}, user : {}", String.format("%-16s", isolationLevel.name()), actual);
+//            assertThat(actual.getPassword()).isEqualTo("password");
 
-            // 사용자A가 조회한 gugu 객체를 사용자B가 다시 조회했다.
-            final var anotherUser = userDao.findByAccount(subConnection, "gugu");
-
-            // ❗사용자B가 gugu 객체의 비밀번호를 변경했다.(subConnection은 auto commit 상태)
-            anotherUser.changePassword("qqqq");
-            userDao.update(subConnection, anotherUser);
-        })).start();
-
-        sleep(0.5);
-
-        // 사용자A가 다시 gugu 객체를 조회했다.
-        // 사용자B는 패스워드를 변경하고 아직 커밋하지 않았다.
-        final var actual = userDao.findByAccount(connection, "gugu");
-
-        // 트랜잭션 격리 레벨에 따라 아래 테스트가 통과한다.
-        // 각 격리 레벨은 어떤 결과가 나오는지 직접 확인해보자.
-        log.info("isolation level : {}, user : {}", isolationLevel, actual);
-        assertThat(actual.getPassword()).isEqualTo("password");
-
-        connection.rollback();
+            connection.rollback();
+            dataSource.getConnection().prepareStatement("drop table if exists users").execute();
+        }
     }
 
     /**

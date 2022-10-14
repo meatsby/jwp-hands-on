@@ -1,15 +1,16 @@
 package transaction.stage1;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.JdbcDatabaseContainer;
@@ -115,7 +116,6 @@ class Stage1Test {
             // 사용자B 가 패스워드를 변경하고 아직 커밋하지 않은 상태에서 사용자A 가 다시 gugu 객체를 조회했다.
             User actual = userDao.findByAccount(connection, "gugu");
             log.info("isolation level : {}, user : {}", String.format("%-16s", isolationLevel.name()), actual);
-//            assertThat(actual.getPassword()).isEqualTo("password");
 
             connection.rollback();
             dataSource.getConnection().prepareStatement("drop table if exists users").execute();
@@ -127,60 +127,49 @@ class Stage1Test {
      * Read phenomena | Phantom reads Isolation level  | -----------------|-------------- Read Uncommitted | Read
      * Committed   | Repeatable Read  | Serializable     |
      */
-    @Test
-    void phantomReading() throws SQLException {
-
-        // testcontainer로 docker를 실행해서 mysql에 연결한다.
-        final var mysql = new MySQLContainer<>(DockerImageName.parse("mysql:8.0.30"))
+    @ParameterizedTest
+    @EnumSource(value = IsolationLevel.class)
+    void phantomReading(final IsolationLevel isolationLevel) throws SQLException {
+        // testcontainer 로 docker 를 실행해서 mysql 에 연결한다.
+        MySQLContainer<?> mysql = new MySQLContainer<>(DockerImageName.parse("mysql:8.0.30"))
                 .withLogConsumer(new Slf4jLogConsumer(log));
         mysql.start();
         setUp(createMySQLDataSource(mysql));
 
         // 테스트 전에 필요한 데이터를 추가한다.
-        userDao.insert(dataSource.getConnection(), new User("gugu", "password", "hkkang@woowahan.com"));
+        User gugu = new User("gugu", "password", "hkkang@woowahan.com");
+        userDao.insert(dataSource.getConnection(), gugu);
 
-        // db에 새로운 연결(사용자A)을 받아와서
-        final var connection = dataSource.getConnection();
-
-        // 트랜잭션을 시작한다.
+        // 새로운 연결(사용자A)을 받아온 뒤, 트랜잭션을 시작한다.
+        Connection connection = dataSource.getConnection();
         connection.setAutoCommit(false);
 
-        // 적절한 격리 레벨을 찾는다.
-        final int isolationLevel = Connection.TRANSACTION_NONE;
-
         // 트랜잭션 격리 레벨을 설정한다.
-        connection.setTransactionIsolation(isolationLevel);
+        connection.setTransactionIsolation(isolationLevel.getLevel());
 
-        // 사용자A가 id로 범위를 조회했다.
+        // 사용자A 가 id 로 범위를 조회했다.
         userDao.findGreaterThan(connection, 1);
 
         new Thread(RunnableWrapper.accept(() -> {
-            // 사용자B가 새로 연결하여
-            final var subConnection = dataSource.getConnection();
-
-            // 트랜잭션 시작
+            // 사용자B 가 새로 연결한 뒤, 트랜잭션을 시작한다.
+            Connection subConnection = dataSource.getConnection();
             subConnection.setAutoCommit(false);
 
-            // 새로운 user 객체를 저장했다.
-            // id는 2로 저장된다.
-            userDao.insert(subConnection, new User("bird", "password", "bird@woowahan.com"));
+            // 새로운 user 객체가 id는 2인 상태로 저장된다.
+            User bird = new User("bird", "password", "bird@woowahan.com");
+            userDao.insert(subConnection, bird);
 
             subConnection.commit();
         })).start();
-
-        sleep(0.5);
+        sleep(0.1);
 
         // MySQL에서 팬텀 읽기를 시연하려면 update를 실행해야 한다.
         // http://stackoverflow.com/questions/42794425/unable-to-produce-a-phantom-read/42796969#42796969
-        userDao.updatePasswordGreaterThan(connection, "qqqq", 1);
+//        userDao.updatePasswordGreaterThan(connection, "qqqq", 1);
 
-        // 사용자A가 다시 id로 범위를 조회했다.
-        final var actual = userDao.findGreaterThan(connection, 1);
-
-        // 트랜잭션 격리 레벨에 따라 아래 테스트가 통과한다.
-        // 각 격리 레벨은 어떤 결과가 나오는지 직접 확인해보자.
-        log.info("isolation level : {}, user : {}", isolationLevel, actual);
-        assertThat(actual).hasSize(1);
+        // 사용자A 가 다시 id로 범위를 조회했다.
+        List<User> actual = userDao.findGreaterThan(connection, 1);
+        log.info("isolation level : {}, user : {}", String.format("%-16s", isolationLevel.name()), actual);
 
         connection.rollback();
         mysql.close();

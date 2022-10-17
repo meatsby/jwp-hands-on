@@ -1,5 +1,6 @@
 package transaction.stage2;
 
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -25,7 +26,7 @@ class Stage2Test {
     private static final Logger log = LoggerFactory.getLogger(Stage2Test.class);
 
     @Autowired
-    private FirstUserService firstUserService;
+    private ParentService parentService;
 
     @Autowired
     private UserRepository userRepository;
@@ -41,40 +42,11 @@ class Stage2Test {
      */
     @Test
     void testRequired() {
-        final var actual = firstUserService.saveFirstTransactionWithRequired();
+        final var actual = parentService.required(ChildService::required);
 
         log.info("transactions : {}", actual);
         assertThat(actual)
-                .hasSize(0)
-                .containsExactly("");
-    }
-
-    /**
-     * 생성된 트랜잭션이 몇 개인가?
-     * 왜 그런 결과가 나왔을까?
-     */
-    @Test
-    void testRequiredNew() {
-        final var actual = firstUserService.saveFirstTransactionWithRequiredNew();
-
-        log.info("transactions : {}", actual);
-        assertThat(actual)
-                .hasSize(0)
-                .containsExactly("");
-    }
-
-    /**
-     * firstUserService.saveAndExceptionWithRequiredNew()에서 강제로 예외를 발생시킨다.
-     * REQUIRES_NEW 일 때 예외로 인한 롤백이 발생하면서 어떤 상황이 발생하는 지 확인해보자.
-     */
-    @Test
-    void testRequiredNewWithRollback() {
-        assertThat(firstUserService.findAll()).hasSize(-1);
-
-        assertThatThrownBy(() -> firstUserService.saveAndExceptionWithRequiredNew())
-                .isInstanceOf(RuntimeException.class);
-
-        assertThat(firstUserService.findAll()).hasSize(-1);
+                .hasSize(1);
     }
 
     /**
@@ -83,12 +55,11 @@ class Stage2Test {
      */
     @Test
     void testSupports() {
-        final var actual = firstUserService.saveFirstTransactionWithSupports();
+        final var actual = parentService.required(ChildService::supports);
 
         log.info("transactions : {}", actual);
         assertThat(actual)
-                .hasSize(0)
-                .containsExactly("");
+                .hasSize(1);
     }
 
     /**
@@ -98,12 +69,38 @@ class Stage2Test {
      */
     @Test
     void testMandatory() {
-        final var actual = firstUserService.saveFirstTransactionWithMandatory();
+        final var actual = parentService.required(ChildService::mandatory);
 
         log.info("transactions : {}", actual);
         assertThat(actual)
-                .hasSize(0)
-                .containsExactly("");
+                .hasSize(1);
+    }
+
+    /**
+     * 생성된 트랜잭션이 몇 개인가?
+     * 왜 그런 결과가 나왔을까?
+     */
+    @Test
+    void testRequiredNew() {
+        final var actual = parentService.required(ChildService::requiresNew);
+
+        log.info("transactions : {}", actual);
+        assertThat(actual)
+                .hasSize(2);
+    }
+
+    /**
+     * firstUserService.saveAndExceptionWithRequiredNew()에서 강제로 예외를 발생시킨다.
+     * REQUIRES_NEW 일 때 예외로 인한 롤백이 발생하면서 어떤 상황이 발생하는 지 확인해보자.
+     */
+    @Test
+    void testRequiredNewWithRollback() {
+        assertThat(parentService.findAll()).hasSize(0);
+
+        assertThatThrownBy(() -> parentService.exception(ChildService::requiresNew))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(parentService.findAll()).hasSize(1);
     }
 
     /**
@@ -115,12 +112,23 @@ class Stage2Test {
      */
     @Test
     void testNotSupported() {
-        final var actual = firstUserService.saveFirstTransactionWithNotSupported();
+        final var actual = parentService.nonTransactional(ChildService::notSupported);
 
         log.info("transactions : {}", actual);
         assertThat(actual)
-                .hasSize(0)
-                .containsExactly("");
+                .hasSize(1);
+    }
+
+    /**
+     * 마찬가지로 @Transactional을 주석처리하면서 관찰해보자.
+     */
+    @Test
+    void testNever() {
+        final var actual = parentService.nonTransactional(ChildService::never);
+
+        log.info("transactions : {}", actual);
+        assertThat(actual)
+                .hasSize(1);
     }
 
     /**
@@ -129,24 +137,10 @@ class Stage2Test {
      */
     @Test
     void testNested() {
-        final var actual = firstUserService.saveFirstTransactionWithNested();
+        final var actual = parentService.nonTransactional(ChildService::nested);
 
         log.info("transactions : {}", actual);
         assertThat(actual)
-                .hasSize(0)
-                .containsExactly("");
-    }
-
-    /**
-     * 마찬가지로 @Transactional을 주석처리하면서 관찰해보자.
-     */
-    @Test
-    void testNever() {
-        final var actual = firstUserService.saveFirstTransactionWithNever();
-
-        log.info("transactions : {}", actual);
-        assertThat(actual)
-                .hasSize(0)
-                .containsExactly("");
+                .hasSize(1);
     }
 }

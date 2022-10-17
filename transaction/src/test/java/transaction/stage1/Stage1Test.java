@@ -175,6 +175,40 @@ class Stage1Test {
         mysql.close();
     }
 
+    @Test
+    void rrinsert() throws SQLException {
+        // testcontainer 로 docker 를 실행해서 mysql 에 연결한다.
+        MySQLContainer<?> mysql = new MySQLContainer<>(DockerImageName.parse("mysql:8.0.30"))
+                .withLogConsumer(new Slf4jLogConsumer(log));
+        mysql.start();
+        setUp(createMySQLDataSource(mysql));
+
+        // 테스트 전에 필요한 데이터를 추가한다.
+        Connection a = dataSource.getConnection();
+        a.setAutoCommit(false);
+        a.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+
+        User byId = userDao.findById(a, 2L);
+        log.info("here zz {}", byId);
+
+        new Thread(RunnableWrapper.accept(() -> {
+            Connection b = dataSource.getConnection();
+            b.setAutoCommit(false);
+
+            User gugu = new User("gugu", "password", "hkkang@woowahan.com");
+            userDao.insert(b, gugu);
+
+            b.commit();
+        })).start();
+        sleep(0.1);
+
+        User qwe = userDao.findById(a, 2L);
+        log.info("here zz {}", qwe);
+
+        a.rollback();
+        mysql.close();
+    }
+
     private static DataSource createMySQLDataSource(final JdbcDatabaseContainer<?> container) {
         final var config = new HikariConfig();
         config.setJdbcUrl(container.getJdbcUrl());
